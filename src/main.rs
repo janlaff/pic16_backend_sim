@@ -25,7 +25,7 @@ fn output_available() -> bool {
 }
 
 fn main() {
-    //simple_logger::init().unwrap();
+    simple_logger::init().unwrap();
 
     fs::remove_file(INPUT);
     fs::remove_file(OUTPUT);
@@ -35,10 +35,7 @@ fn main() {
 
     std::thread::spawn(|| {
         let mut cpu = CPU::new(input_rx, output_tx);
-
-        loop {
-            cpu.update();
-        }
+        loop { cpu.update(); }
     });
 
     let mut commands = vec![];

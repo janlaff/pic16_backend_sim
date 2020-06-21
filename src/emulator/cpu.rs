@@ -43,14 +43,16 @@ impl CPU {
     }
 
     pub fn reset(&mut self) {
+        self.commands.clear();
+
         if !self.program_info.pc_mapper.is_empty() {
             self.write_command(format!("RESLINE {}", self.program_info.pc_mapper.get(&self.data_bus.get_pc()).unwrap()));
         }
 
-        self.commands.clear();
         self.cycles = 0;
         self.data_bus = DataBus::new();
         self.jump_performed = false;
+        self.data_bus.load_pc(0);
 
         self.write_command(format!("PCL {:x}h", self.data_bus.sfr_bank.pcl));
         self.write_command(format!("PCLATH {:x}h", self.data_bus.sfr_bank.pclath));
@@ -88,10 +90,10 @@ impl CPU {
                         let content = fs::read_to_string(command).expect("Failed to open file");
                         let result = parse_lst_file(content.as_str());
 
-                        self.reset();
                         self.rom_bus.load_program(&result.program, 0);
-                        self.write_command(format!("SETLINE {}", result.pc_mapper.get(&0).unwrap()));
+                        self.reset();
 
+                        self.write_command(format!("SETLINE {}", result.pc_mapper.get(&0).unwrap()));
                         self.program_info = result;
 
                         println!("Finished loading file");
@@ -99,7 +101,10 @@ impl CPU {
                         let tokens: Vec<&str> = command.split(" ").collect();
                         match tokens[0] {
                             "STEP" => self.step(),
-                            "RESET" => self.reset(),
+                            "RESET" => {
+                                self.reset();
+                                self.write_command(format!("SETLINE {}", self.program_info.pc_mapper.get(&0).unwrap()))
+                            },
                             "START" => self.running = true,
                             "STOPP" => self.running = false,
                             "XTAL" => {
@@ -121,7 +126,6 @@ impl CPU {
         }
 
         if self.running {
-            println!("Yes i am running");
             self.step();
         }
 
