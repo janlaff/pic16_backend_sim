@@ -8,6 +8,7 @@ use crate::emulator::{parse_lst_file, ParseResult};
 use std::fs;
 use std::path::Path;
 use std::panic::resume_unwind;
+use std::alloc::dealloc;
 
 pub struct CPU {
     pub cycles: usize,
@@ -54,14 +55,15 @@ impl CPU {
         self.jump_performed = false;
         self.data_bus.load_pc(0);
 
-        self.write_command(format!("PCL {:x}h", self.data_bus.sfr_bank.pcl));
-        self.write_command(format!("PCLATH {:x}h", self.data_bus.sfr_bank.pclath));
-        self.write_command(format!("PCINTERN {}", self.data_bus.get_pc()));
-        self.write_command(format!("WREG {:x}h", self.data_bus.sfr_bank.w));
-        self.write_command(format!("STATUS {:x}h", self.data_bus.sfr_bank.status));
-        self.write_command(format!("FSR {:x}h", self.data_bus.sfr_bank.fsr));
-        self.write_command(format!("OPTION {:x}h", self.data_bus.sfr_bank.option));
-        self.write_command(format!("TIMER0 {:x}h", self.data_bus.sfr_bank.tmr0));
+        self.write_command(format!("PCL {:02x}h", self.data_bus.sfr_bank.pcl));
+        self.write_command(format!("PCLATH {:02x}h", self.data_bus.sfr_bank.pclath));
+        self.write_command(format!("PCINTERN {:04}", self.data_bus.get_pc()));
+        self.write_command(format!("WREG {:02x}h", self.data_bus.sfr_bank.w));
+        self.write_command(format!("STATUS {:02x}h", self.data_bus.sfr_bank.status));
+        self.write_command(format!("FSR {:02x}h", self.data_bus.sfr_bank.fsr));
+        self.write_command(format!("OPTION {:02x}h", self.data_bus.sfr_bank.option));
+        self.write_command(format!("TIMER0 {:02x}h", self.data_bus.sfr_bank.tmr0));
+        self.write_command(String::from("STACK"));
     }
 
     fn write_command(&mut self, cmd: String) {
@@ -117,6 +119,28 @@ impl CPU {
 
                                 self.frame_duration = Duration::from_nanos(hertz::fps_to_ns_per_frame(f_base * f_mul));
                             }
+                            "PORTA" => {
+                                let tmp: Vec<&str> = tokens[1].split(",").collect();
+                                let idx = tmp[0].parse::<usize>().unwrap();
+                                let bit = tmp[1].parse::<u8>().unwrap();
+
+                                if bit != 0 {
+                                    self.set_fsr_bit(PORTA_ADDR, idx);
+                                } else {
+                                    self.clear_fsr_bit(PORTA_ADDR, idx);
+                                }
+                            }
+                            "PORTB" => {
+                                let tmp: Vec<&str> = tokens[1].split(",").collect();
+                                let idx = tmp[0].parse::<usize>().unwrap();
+                                let bit = tmp[1].parse::<u8>().unwrap();
+
+                                if bit != 0 {
+                                    self.set_fsr_bit(PORTB_ADDR, idx);
+                                } else {
+                                    self.clear_fsr_bit(PORTB_ADDR, idx);
+                                }
+                            }
                             _ => println!("Unknown input command: {}", command)
                         };
                     }
@@ -157,9 +181,9 @@ impl CPU {
 
         self.write_command(format!("RESLINE {}", self.program_info.pc_mapper.get(&old_pc).unwrap()));
         self.write_command(format!("SETLINE {}", self.program_info.pc_mapper.get(&self.data_bus.get_pc()).unwrap()));
-        self.write_command(format!("PCL {:x}h", self.data_bus.sfr_bank.pcl));
-        self.write_command(format!("PCLATH {:x}h", self.data_bus.sfr_bank.pclath));
-        self.write_command(format!("PCINTERN {}", self.data_bus.get_pc()));
+        self.write_command(format!("PCL {:02x}h", self.data_bus.sfr_bank.pcl));
+        self.write_command(format!("PCLATH {:02x}h", self.data_bus.sfr_bank.pclath));
+        self.write_command(format!("PCINTERN {:04}", self.data_bus.get_pc()));
     }
 
     // Getter methods
@@ -177,24 +201,24 @@ impl CPU {
     fn set_zero(&mut self, value: bool) {
         set_bit_enabled(&mut self.data_bus.sfr_bank.status, Z, value);
         self.write_command(format!("STATUSBIT {},{}", Z, value as u8));
-        self.write_command(format!("STATUS {:x}h", self.get_status()));
+        self.write_command(format!("STATUS {:02x}h", self.get_status()));
     }
 
     fn set_carry(&mut self, value: bool) {
         set_bit_enabled(&mut self.data_bus.sfr_bank.status, C, value);
         self.write_command(format!("STATUSBIT {},{}", C, value as u8));
-        self.write_command(format!("STATUS {:x}h", self.get_status()));
+        self.write_command(format!("STATUS {:02x}h", self.get_status()));
     }
 
     fn set_digit_carry(&mut self, value: bool) {
         set_bit_enabled(&mut self.data_bus.sfr_bank.status, DC, value);
         self.write_command(format!("STATUSBIT {},{}", DC, value as u8));
-        self.write_command(format!("STATUS {:x}h", self.get_status()));
+        self.write_command(format!("STATUS {:02x}h", self.get_status()));
     }
 
     fn set_w(&mut self, value: u8) {
         self.data_bus.sfr_bank.w = value;
-        self.write_command(format!("WREG {:x}h", value));
+        self.write_command(format!("WREG {:02x}h", value));
     }
 
     fn set_fsr(&mut self, destination: u8, value: u8, dflag: bool) {
@@ -202,20 +226,47 @@ impl CPU {
             self.set_w(value);
         } else {
             self.data_bus.write_byte(destination, value);
-            self.write_command(format!("FREG {},0x{:x}", destination, value));
+            self.write_command(format!("FREG {},0x{:02x}", destination, value));
         }
     }
 
     fn set_fsr_bit(&mut self, destination: u8, index: usize) {
         self.data_bus.set_bit(destination, index);
         let val = self.get_fsr(destination);
-        self.write_command(format!("FREG {},0x{:x}", destination, val));
+        self.write_command(format!("FREG {},0x{:02x}", destination, val));
     }
 
     fn clear_fsr_bit(&mut self, destination: u8, index: usize) {
         self.data_bus.clear_bit(destination, index);
         let val = self.get_fsr(destination);
-        self.write_command(format!("FREG {},0x{:x}", destination, val));
+        self.write_command(format!("FREG {},0x{:02x}", destination, val));
+    }
+
+    pub fn output_stack(&mut self) {
+        let mut out = String::from("STACK ");
+
+        if self.data_bus.stack.len() > 0 {
+            out += &format!("{:04}", self.data_bus.stack[0]);
+        }
+
+        for i in 1..self.data_bus.stack.len() {
+            out += &format!(", {:04}", self.data_bus.stack[i]);
+        }
+
+        println!("{}", out);
+
+        self.write_command(out);
+    }
+
+    fn push(&mut self, value: u16) {
+        self.data_bus.stack.push(value);
+        self.output_stack();
+    }
+
+    fn pop(&mut self) -> u16 {
+        let ret = self.data_bus.stack.pop();
+        self.output_stack();
+        ret.unwrap()
     }
 
     // Checker functions
@@ -226,6 +277,7 @@ impl CPU {
         // TODO: Implement instructions
 
         match instruction {
+            Instruction::Nop => {},
             Instruction::MovLw(Literal(value)) => {
                 self.set_w(value);
             }
@@ -276,16 +328,16 @@ impl CPU {
                 self.set_w(val);
             }
             Instruction::Call(Address(idx)) => {
-                self.data_bus.stack.push(self.data_bus.get_pc());
+                self.push(self.data_bus.get_pc());
                 self.data_bus.load_pc(idx - 1);
             }
             Instruction::Return => {
-                let pc = self.data_bus.stack.pop().unwrap();
+                let pc = self.pop();
                 self.data_bus.load_pc(pc);
             }
             Instruction::RetLw(Literal(value)) => {
                 self.set_w(value);
-                let pc = self.data_bus.stack.pop().unwrap();
+                let pc = self.pop();
                 self.data_bus.load_pc(pc);
             }
             Instruction::AddWf(FileRegister(destination), DestinationFlag(dflag)) => {
@@ -373,6 +425,24 @@ impl CPU {
                 val = (val << 1) | cy;
                 self.set_carry(val > 0xff);
                 self.set_fsr(destination, val as u8, dflag);
+            }
+            Instruction::RrF(FileRegister(destination), DestinationFlag(dflag)) => {
+                let cy = self.get_carry() as u8;
+                let mut val = self.get_fsr(destination);
+
+                let new_val = (cy << 7) | (val >> 1);
+                self.set_carry(get_bit(val, 0));
+                self.set_fsr(destination, new_val, dflag);
+            }
+            Instruction::DecFsz(FileRegister(destination), DestinationFlag(dflag)) => {
+                let val = self.get_fsr(destination).wrapping_sub(1);
+                if val == 0 { self.data_bus.inc_pc(1); }
+                self.set_fsr(destination, val, dflag);
+            }
+            Instruction::IncFsz(FileRegister(destination), DestinationFlag(dflag)) => {
+                let val = self.get_fsr(destination).wrapping_add(1);
+                if val == 0 { self.data_bus.inc_pc(1); }
+                self.set_fsr(destination, val, dflag);
             }
             _ => panic!("Unknown instruction: {:?}", instruction)
         };
