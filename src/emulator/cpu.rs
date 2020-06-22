@@ -228,29 +228,36 @@ impl CPU {
         self.write_command(format!("WREG {:02x}h", value));
     }
 
+    fn get_sfr_address(&mut self, destination: u8) -> u8 {
+        if destination == INDIRECT_ADDR {
+            self.data_bus.sfr_bank.fsr
+        } else {
+            destination
+        }
+    }
+
     fn set_fsr(&mut self, mut destination: u8, value: u8, dflag: bool) {
         if !dflag {
             self.set_w(value);
         } else {
-            if destination == 0 {
-                destination = self.data_bus.sfr_bank.fsr;
-            }
-
-            self.data_bus.write_byte(destination, value);
-            self.write_command(format!("FREG {},0x{:02x}", destination, value));
+            let real_addr = self.get_sfr_address(destination);
+            self.data_bus.write_byte(real_addr, value);
+            self.write_command(format!("FREG {},0x{:02x}", real_addr, value));
         }
     }
 
     fn set_fsr_bit(&mut self, destination: u8, index: usize) {
-        self.data_bus.set_bit(destination, index);
-        let val = self.get_fsr(destination);
-        self.write_command(format!("FREG {},0x{:02x}", destination, val));
+        let real_addr = self.get_sfr_address(destination);
+        self.data_bus.set_bit(real_addr, index);
+        let val = self.get_fsr(real_addr);
+        self.write_command(format!("FREG {},0x{:02x}", real_addr, val));
     }
 
     fn clear_fsr_bit(&mut self, destination: u8, index: usize) {
-        self.data_bus.clear_bit(destination, index);
-        let val = self.get_fsr(destination);
-        self.write_command(format!("FREG {},0x{:02x}", destination, val));
+        let real_addr = self.get_sfr_address(destination);
+        self.data_bus.clear_bit(real_addr, index);
+        let val = self.get_fsr(real_addr);
+        self.write_command(format!("FREG {},0x{:02x}", real_addr, val));
     }
 
     pub fn output_stack(&mut self) {
