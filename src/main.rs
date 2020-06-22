@@ -10,6 +10,7 @@ use std::fs::File;
 use std::io::{BufReader, BufRead, Write};
 use std::fs;
 use regex::internal::Input;
+use std::collections::VecDeque;
 
 mod emulator;
 
@@ -25,6 +26,7 @@ fn output_available() -> bool {
 }
 
 fn main() {
+    // TODO: report all data at specific rate when running and when stopped
     simple_logger::init().unwrap();
 
     fs::remove_file(INPUT);
@@ -38,7 +40,8 @@ fn main() {
         loop { cpu.update(); }
     });
 
-    let mut commands = vec![];
+    let mut commands = VecDeque::new();
+    let mut saved_string = String::new();
 
     loop {
         if input_available() {
@@ -66,16 +69,17 @@ fn main() {
 
         if output_available() {
             if commands.len() > 0 {
-                let mut result = String::from(commands[0].clone());
+                let mut result = saved_string.clone();
+                saved_string.clear();
 
-                for i in 1..commands.len() {
+                for i in 0..std::cmp::min(commands.len(), 1000) {
                     result += "\n";
-                    result += &commands[i];
+                    result += &commands.pop_front().unwrap();
                 }
 
-                fs::write(OUTPUT, result).expect("Oopsie");
-
-                commands.clear();
+               if let Err(_) = fs::write(OUTPUT, &result) {
+                   saved_string = result;
+               }
             }
         }
     }

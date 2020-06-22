@@ -123,11 +123,13 @@ impl DataBus {
     }
 
     fn map_address(&mut self, address: u8) -> &mut u8 {
-        assert!((address as usize) < self.memory.len());
+        // Addresses over 127 are mapped to bank 1 (INDIRECT addressing)
+        let bank_selector = get_bit(self.sfr_bank.status, RP0) || (address > 127);
+        let transformed_address = address & 127;
 
-        if get_bit(self.sfr_bank.status, RP0) {
+        if bank_selector {
             // Bank 1 is used
-            match address {
+            match transformed_address {
                 INDIRECT_ADDR => &mut self.sfr_bank.indirect,
                 OPTION_ADDR => &mut self.sfr_bank.option,
                 PCL_ADDR => &mut self.sfr_bank.pcl,
@@ -143,7 +145,7 @@ impl DataBus {
             }
         } else {
             // Bank 0 is used
-            match address {
+            match transformed_address {
                 INDIRECT_ADDR => &mut self.sfr_bank.indirect,
                 TMR0_ADDR => &mut self.sfr_bank.tmr0,
                 PCL_ADDR => &mut self.sfr_bank.pcl,

@@ -22,6 +22,7 @@ pub struct CPU {
     now: Instant,
     jump_performed: bool,
     frame_duration: Duration,
+    output_duration: Duration,
     commands: Vec<String>,
 }
 
@@ -37,7 +38,9 @@ impl CPU {
             commands: vec![],
             last: Instant::now(),
             now: Instant::now(),
-            frame_duration: Duration::from_secs(0),
+            frame_duration: Duration::from_millis(100),
+            // TODO: use this
+            output_duration: Duration::from_millis(500),
             program_info: ParseResult::new(),
             running: false,
         }
@@ -194,8 +197,12 @@ impl CPU {
     // Register
     fn get_w(&self) -> u8 { self.data_bus.sfr_bank.w }
     fn get_status(&self) -> u8 { self.data_bus.sfr_bank.status }
-    fn get_fsr(&mut self, destination: u8) -> u8 { self.data_bus.read_byte(destination) }
-    fn get_fsr_bit(&mut self, destination: u8, index: usize) -> bool { self.data_bus.get_bit(destination, index) }
+    fn get_fsr(&mut self, mut destination: u8) -> u8 {
+        self.data_bus.read_byte(if destination == INDIRECT_ADDR { self.data_bus.sfr_bank.fsr } else { destination })
+    }
+    fn get_fsr_bit(&mut self, destination: u8, index: usize) -> bool {
+        self.data_bus.get_bit(if destination == INDIRECT_ADDR { self.data_bus.sfr_bank.fsr } else { destination }, index)
+    }
 
     // Setter methods
     fn set_zero(&mut self, value: bool) {
@@ -221,10 +228,14 @@ impl CPU {
         self.write_command(format!("WREG {:02x}h", value));
     }
 
-    fn set_fsr(&mut self, destination: u8, value: u8, dflag: bool) {
+    fn set_fsr(&mut self, mut destination: u8, value: u8, dflag: bool) {
         if !dflag {
             self.set_w(value);
         } else {
+            if destination == 0 {
+                destination = self.data_bus.sfr_bank.fsr;
+            }
+
             self.data_bus.write_byte(destination, value);
             self.write_command(format!("FREG {},0x{:02x}", destination, value));
         }
